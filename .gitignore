@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+results/
+recordings/
+examples/replay_telemetry.csv
