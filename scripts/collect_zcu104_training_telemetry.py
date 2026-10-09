@@ -105,7 +105,7 @@ class ExcursionTracker:
         return False
 
 
-def collect(args):
+def collect(args, row_observer=None):
     def log(*values, **kwargs):
         print(*values, file=sys.stderr if args.stream_csv else sys.stdout, **kwargs)
     mapping = json.loads(args.sensor_map.read_text()) if args.sensor_map else discover(args.sys_root)
@@ -132,7 +132,8 @@ def collect(args):
               'stage', *FEATURES, 'read_span_ms', 'input_valid', 'read_error',
               *[f + '__timestamp_s' for f in FEATURES]]
     status = 'completed'
-    log('Recording. Run your workload separately. Ctrl+C closes the file safely.', flush=True)
+    log('Recording with integrated workload supervision.' if row_observer else
+        'Recording. Run your workload separately. Ctrl+C closes the file safely.', flush=True)
     try:
         with args.output.open('x', newline='') as handle:
             writer = csv.DictWriter(handle, fieldnames=fields)
@@ -172,6 +173,8 @@ def collect(args):
                 row['read_span_ms'] = (end - row_start) * 1000
                 row['input_valid'] = not errors and end - row_start <= .2
                 row['read_error'] = '; '.join(errors)
+                if row_observer is not None:
+                    row_observer(row)
                 writer.writerow(row)
                 if stream:
                     stream.writerow(row)

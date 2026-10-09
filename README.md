@@ -2,27 +2,30 @@
 
 Follow the steps in order. Do not proceed past a failed check.
 
-## Important: FPGA workload launcher is not yet included
+## New: CNN workload + telemetry + prediction in one command
 
-This repository runs the predictor and collector, but does **not** include the
-application that produces FPGA load. Idle sensor readings are valid readings,
-but they are not evidence of a CNN workload running in FPGA fabric.
-The existing workload must be identified before an end-to-end under-load launcher
-can be supplied. A PC/ARM CPU loop is not a substitute for FPGA execution.
+A real two-convolution-layer computational workload is now included. It runs
+on the ZCU104's **ARM CPU, not FPGA fabric**, using Python 3's standard library.
+It uses fixed untrained weights and synthetic images; it is not a trained image
+classifier. This replaces the CPU hashing workload from your pasted script.
 
-After completing steps 1–9 below, run these in Windows PowerShell:
+First complete Windows runtime setup and board networking in steps 1–8 below.
+Then, in PowerShell inside this repository, replace the example IP and run:
 
 ```powershell
-scp .\scripts\check_board_workload_setup.py "${board}:raise_fpga_live/check_board_workload_setup.py"
-ssh $board "python3 raise_fpga_live/check_board_workload_setup.py"
+.\.venv\Scripts\python.exe -m scripts.start_cnn_demo --board root@192.168.1.25 --duration-s 60
 ```
 
-Send the output and the command/script previously used to produce the
-zcu104_cnn recordings. This check reads runtime/module availability and lists
-candidate hardware files under the board account's home directory. It does not
-program the board, start a workload, or establish that any model is compatible.
-If your hardware files are elsewhere, run it with --search-dir for that specific
-directory. Do not publish private board inventory or credentials to GitHub.
+Use the actual board account (root was shown in your pasted console; other images
+may use xilinx). The command uploads the collector and CNN launcher, checks
+sensors, starts an idle/load/cool-down session, and runs the saved predictor on
+the PC. Password prompts may occur more than once. It requires SSH over Ethernet;
+the COM3 serial connection alone does not provide this transport.
+
+See [the short CNN workload walkthrough](docs/CNN_WORKLOAD.md) for the exact
+steps and expected outputs. The session was tested locally with simulated sensor
+files, not on your physical board. FPGA-fabric CNN execution still needs a
+compatible accelerator, bitstream and model; no such hardware deployment is claimed.
 
 **What this deployment does:** the ZCU104 sends seven sensor readings to your Windows PC. The PC loads the included trained .pt file, makes predictions, and saves telemetry and prediction logs. The model runs on the PC CPU, not in FPGA fabric.
 
@@ -206,7 +209,9 @@ If a sensor is missing, access is denied, or a value is implausible, stop and ke
 
 ## Step 11 — Run a short live test
 
-Leave normal cooling/protections enabled. If needed, run your existing approved FPGA workload separately using its established procedure. This repository does not start or program that workload.
+Leave normal cooling/protections enabled. The following command collects telemetry
+only. For the included ARM-CPU CNN workload and predictions together, use the
+start_cnn_demo command at the top of this README. It does not program FPGA fabric.
 
 In **PowerShell**:
 
@@ -266,7 +271,8 @@ Ctrl+C stops the PC runner, not a separately launched FPGA workload. After an in
 
 ## What is and is not finished
 
-The package passed local replay and 8 unit tests. Live streaming on your physical board still requires verification.
+The package passed local replay, unit tests and a full CNN session with simulated
+sensor files. Live streaming on your physical board still requires verification.
 
 The earlier held-out macro accuracy was 89.53%, versus a 96.82% always-negative baseline. Raw accuracy alone does not prove a useful hazard detector. The new gradual recording had no positive 49/50/51C events; its negative-only 100% result does not validate transition detection.
 

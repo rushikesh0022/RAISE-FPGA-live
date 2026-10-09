@@ -72,11 +72,14 @@ def main():
     source.add_argument('--ssh', help='Board login, e.g. xilinx@192.168.1.25')
     source.add_argument('--input', type=Path, help='Replay a recorded CSV on the PC')
     p.add_argument('--remote-script', default='collect_zcu104_training_telemetry.py')
+    p.add_argument('--with-cnn-workload', action='store_true', help='Run the supplied ARM-CPU CNN session on the board; NOT FPGA fabric')
     p.add_argument('--checkpoint', type=Path, default=Path('outputs/models/combined_board_20261006_physics_cnn_gru.pt'))
     p.add_argument('--duration-s', type=float, default=1800)
     p.add_argument('--predict-every-s', type=float, default=1.)
     p.add_argument('--output-dir', type=Path, default=Path('results/live'))
     args = p.parse_args()
+    if args.with_cnn_workload and not args.ssh:
+        p.error('--with-cnn-workload requires --ssh')
     if args.predict_every_s < .1 or args.duration_s <= 0:
         p.error('Prediction interval must be at least 0.1s and duration positive.')
     torch.set_num_threads(2)
@@ -94,11 +97,13 @@ def main():
     telemetry_path = args.output_dir / ('telemetry_' + stamp + '.csv')
     prediction_path = args.output_dir / ('predictions_' + stamp + '.jsonl')
     process = None
+    remote_exit_code = 0
     if args.ssh:
         if not re.fullmatch(r'[A-Za-z0-9_.-]+@[A-Za-z0-9.-]+', args.ssh):
             p.error('Use a user@hostname or user@IPv4 SSH destination.')
-        remote = ['python3', '-u', args.remote_script, '--stream-csv', '--output',
-                  'recordings/live_' + stamp + '.csv', '--workload', 'live_cnn_session',
+        remote_script = str(Path(args.remote_script).parent / 'run_board_cnn_session.py') if args.with_cnn_workload else args.remote_script
+        remote = ['python3', '-u', remote_script, '--stream-csv', '--output',
+                  'recordings/live_' + stamp + '.csv', '--workload', 'tiny_cnn_arm_cpu' if args.with_cnn_workload else 'telemetry_only',
                   '--duration-s', str(args.duration_s), '--hz', '10']
         process = subprocess.Popen(['ssh', '-T', args.ssh, ' '.join(shlex.quote(item) for item in remote)],
                                    stdout=subprocess.PIPE, text=True, encoding='utf-8', bufsize=1)
@@ -215,11 +220,14 @@ def main():
                 process.kill()
                 code = process.wait()
             if code:
+                remote_exit_code = code
                 print('SSH/collector exited with code {}. Check board messages above.'.format(code))
         else:
             stream.close()
     print('Telemetry saved: ' + str(telemetry_path))
     print('Predictions and temperature follow-ups saved: ' + str(prediction_path))
+    if remote_exit_code:
+        raise SystemExit(2)
 
 
 if __name__ == '__main__':
