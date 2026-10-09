@@ -5,3 +5,5 @@ __pycache__/
 results/
 recordings/
 examples/replay_telemetry.csv
+outputs/retrained/
+results_training/

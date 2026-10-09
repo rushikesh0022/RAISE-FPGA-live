@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "purpose": "October combined-board fine-tuning inputs; not all historical pretraining inputs",
+  "dataset": {
+    "path": "data/training/combined_telemetry.parquet",
+    "sha256": "f097a3bc71c1310206b77bed6991227c67b269605621406d3f29ce8c1ddd0008",
+    "rows": 862551,
+    "sessions": 54
+  },
+  "parent_checkpoint": {
+    "path": "outputs/models/physics_guided_merged_synthetic_real_transition_temperature_fold1.pt",
+    "sha256": "e122f4b7e3bd2af0a02573544f86deb634bd13e337361943bbd66f56d40c7bc4",
+    "changes": "Weights and scalers unchanged; metadata converted to safe primitive types; unused historical group metadata omitted."
+  },
+  "older_source": {
+    "creator": "Marcus Fredriksson",
+    "title": "ZCU104 DPU Inference Benchmark Dataset",
+    "version": "1.0.0",
+    "doi": "10.5281/zenodo.19763074",
+    "record_url": "https://zenodo.org/records/19763074",
+    "license": "CC-BY-4.0"
+  }
+}

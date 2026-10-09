@@ -1,0 +1,54 @@
+schema_version: 1
+feature_set_version: telemetry-candidate-v1
+
+# Candidate source-only channels. Physical identity and live-board equivalence
+# must be accepted in the telemetry contract before deployment.
+features:
+  - {column: temp_pl_temp_C, unit: degC, role: pl_temperature}
+  - {column: temp_ps_temp_C, unit: degC, role: ps_temperature}
+  - {column: temp_remote_temp_C, unit: degC, role: remote_temperature}
+  - {column: iio_vccint_V, unit: V, role: monitored_voltage}
+  - {column: iio_vccaux_V, unit: V, role: monitored_voltage}
+  - {column: iio_vccbram_V, unit: V, role: monitored_voltage}
+  - {column: power_pin_W, unit: W, role: candidate_power_measurement}
+
+windowing:
+  target_hz: 10
+  history_samples: 33
+  history_span_s: 3.2
+  alignment: backward_asof
+  max_staleness_s: 0.2
+  invalidate_if_source_gap_exceeds_s: 0.5
+  interpolate: false
+
+excluded_inputs:
+  batch_id: association_only
+  freq_cpu0_khz: cpu_frequency_is_not_fabric_or_ring_oscillator_frequency
+  completed_batch_aggregates: unavailable_until_batch_completion_and_not_joined_here
+  application_predictions: not_fpga_risk_telemetry
+  suffixed_unnamed_rails: physical_identity_not_established_from_suffix
+
+scaling:
+  method: standardization
+  fit_partition: training_only
+  zero_variance_scale: 1.0
+
+enhanced_causal_features:
+  # These are compact side features; they do not replace or lengthen the core.
+  temperature_columns: [temp_pl_temp_C, temp_ps_temp_C, temp_remote_temp_C]
+  core_dynamics:
+    scale_samples: [5, 17, 33]
+    statistics: [least_squares_slope, quadratic_curvature, population_std]
+  elapsed_since_run_start_s: true
+  optional_long_context_s: [10.0, 30.0]
+  optional_long_context_statistics: [mean, population_std, least_squares_slope]
+  long_context_cross_gap: false
+
+future_temperature_regression_targets:
+  source_column: temp_pl_temp_C
+  horizons_s: [0.5, 2.0, 5.0]
+  alignment: backward_asof_at_exact_horizon_boundary
+  max_staleness_s: 0.2
+  require_same_continuous_segment: true
+  store_actual_observation_timestamp: true
+  predictor_feature: false

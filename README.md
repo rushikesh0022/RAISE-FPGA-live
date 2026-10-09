@@ -2,6 +2,13 @@
 
 Follow the steps in order. Do not proceed past a failed check.
 
+## Training code and data
+
+The repo now includes the combined seven-channel training/validation/test dataset,
+the parent checkpoint and the October fine-tuning entry point. See
+[training steps](docs/TRAINING.md) and [dataset attribution/splits](data/training/README.md).
+You do not need to retrain just to run the live demo.
+
 ## New: CNN workload + telemetry + prediction in one command
 
 A real two-convolution-layer computational workload is now included. It runs
