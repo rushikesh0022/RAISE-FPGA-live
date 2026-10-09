@@ -1,167 +1,220 @@
-# Live ZCU104 predictions on Windows
+# RAISE-FPGA: Windows PC + ZCU104 deployment
 
-This package runs inference on the Windows PC. The ZCU104 supplies seven live
-sensor measurements using read-only Linux sysfs access over SSH. The model is
-loaded once. Predicted outputs are 49/50/51C transition risk within 0.5/2/5s,
-and future PL temperature. The current checkpoint does not implement new
-46/47/48C transition thresholds. Risk scores are exploratory and uncalibrated.
+Follow the steps in order. Do not proceed past a failed check.
 
-## 1. Connect the ZCU104 (power OFF first)
+**What this deployment does:** the ZCU104 sends seven sensor readings to your Windows PC. The PC loads the included trained .pt file, makes predictions, and saves telemetry and prediction logs. The model runs on the PC CPU, not in FPGA fabric.
 
-Use the printed connector and switch labels, not left/right orientation.
-With board power OFF, set SW6 switch **1 ON, 2 OFF, 3 OFF, 4 OFF** for SD
-boot. ON means toward the ON marking.
-[Official setup picture](https://pynq.readthedocs.io/en/latest/_images/zcu104_setup.png)
-and [PYNQ setup instructions](https://pynq.readthedocs.io/en/latest/getting_started/zcu104_setup.html).
+You will use two windows:
+- **Windows PowerShell:** Git, Python setup, copying files and running predictions.
+- **PuTTY:** commands on the ZCU104's Linux system.
 
-1. Keep your existing working ZCU104 Linux microSD in J100. Do not reflash it.
-2. Connect the board's supplied power adapter to J52 and mains. USB alone
-   does not power this board. Keep the normal fan/cooling connected.
-3. Connect a **data-capable micro-USB cable** from J164 USB-UART to a USB
-   port on the Windows computer. This provides the serial console, not telemetry
-   Ethernet. Do not use a charge-only cable or substitute another USB connector.
-4. Connect an Ethernet cable from P12 to your router/switch. Connect the Windows
-   PC to the same network, by Ethernet or Wi-Fi. This guide assumes DHCP;
-   a direct PC-to-board cable needs separate IP configuration.
-5. Turn on board power. Never change boot switches while powered on.
+## Step 1 — Open Windows PowerShell and check prerequisites
 
-Connector identities are documented in the
-[AMD ZCU104 user guide](https://docs.amd.com/v/u/en-US/ug1267-zcu104-eval-bd).
-No HDMI, JTAG programming cable, Vivado programming or new bitstream is required
-for this PC-inference workflow. Run the existing approved FPGA workload separately.
-
-## 2. Open the board console in PuTTY
-
-Open Windows Device Manager, expand Ports (COM & LPT), and identify the
-ZCU104 USB serial port (FTDI UART channel B). In PuTTY select Serial, that COM
-number, speed **115200**, 8 data bits, 1 stop bit, no parity, no flow control.
-Click Open and press Enter. If you see no Linux console, verify the cable,
-selected UART port, SD image and boot setting before continuing.
-
-Log in using the credentials for your installed image. The unchanged PYNQ image
-commonly uses xilinx/xilinx; do not assume this for other or modified images.
-At the board's Linux prompt run:
-
-```bash
-uname -a
-cat /etc/os-release
-python3 --version
-ip -br address
-```
-
-Note the Ethernet IPv4 address, not 127.0.0.1. Keep PuTTY open for diagnosis.
-If Linux or Python 3 is missing, stop: the following collector cannot run yet.
-
-## 3. Clone and prepare Windows
-
-Open **PowerShell on Windows**, not the PuTTY board shell. Check your existing
-Git, Python 3.11 and OpenSSH Client installations:
+On the Windows PC, open Start, search PowerShell and open it. Run each line separately:
 
 ```powershell
 git --version
 py -3.11 --version
 ssh -V
+```
+
+Expected: Git version, Python 3.11 version and OpenSSH version.
+If any command is missing, install that prerequisite from its official source before continuing. You also need PuTTY for the board console.
+
+## Step 2 — Clone the project onto Windows
+
+In the same PowerShell window:
+
+```powershell
+cd $env:USERPROFILE
 git clone https://github.com/rushikesh0022/RAISE-FPGA-live.git
 cd RAISE-FPGA-live
 ```
 
-If a prerequisite command is unavailable, install it from its official source
-before continuing. Do not install PyTorch on the board for this workflow.
+If you already cloned it, do not clone again. Instead:
 
-If using the ZIP instead, open PowerShell in its extracted RAISE_FPGA_live folder.
+```powershell
+cd "$env:USERPROFILE\RAISE-FPGA-live"
+git pull --ff-only
+```
+
+Check the checkpoint is present:
+
+```powershell
+Test-Path .\outputs\models\combined_board_20261006_physics_cnn_gru.pt
+```
+
+Expected: True. You do not need to train again.
+
+## Step 3 — Install the PC runtime
+
+Still in PowerShell, inside RAISE-FPGA-live:
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+.\.venv\Scripts\python.exe -m pip install "torch>=2.6,<3" --index-url https://download.pytorch.org/whl/cpu
 .\.venv\Scripts\python.exe -m pip install numpy==1.26.4
 .\.venv\Scripts\python.exe -c "import torch,numpy; print(torch.__version__,numpy.__version__)"
 ```
 
-Only the board collector requires Python on the ZCU104; it uses the standard
-library. PyTorch and NumPy are installed on Windows, not required on the board.
+Wait for each command to finish before running the next. Expected: the last command prints both versions without an error. No environment activation or PowerShell execution-policy change is needed. PyTorch is not required on the board.
 
-## 4. Verify SSH and all seven sensors
+## Step 4 — Check the model locally before connecting
 
-Use PuTTY's existing Linux console to obtain the Ethernet IP:
-
-```bash
-ip -br address
-python3 --version
-```
-
-In Windows PowerShell, replace BOARD_USER and BOARD_IP below. Verify the SSH
-host fingerprint with the lab before accepting a new host key. Login credentials
-depend on the board image. OpenSSH Client supplies ssh and scp on Windows.
-
-```powershell
-ssh BOARD_USER@BOARD_IP
-```
-
-If the command opens the board shell, run `exit` to return to PowerShell.
-If SSH is unavailable/refused, the board image's SSH service and network must
-be configured before live streaming; the serial console alone is insufficient.
-
-Copy the updated collector to the board:
-
-```powershell
-scp .\scripts\collect_zcu104_training_telemetry.py BOARD_USER@BOARD_IP:
-ssh BOARD_USER@BOARD_IP "python3 collect_zcu104_training_telemetry.py --check-only"
-```
-
-This expects the legacy AMS PL-channel layout from the supplied board logs.
-Missing sensors fail explicitly; do not substitute other channels. The board
-must permit read access to those sysfs files. INA226 board-input power
-equivalence to the original training measurement remains provisional.
-
-## 5. Run live predictions
-
-From the same extracted folder in PowerShell:
-
-```powershell
-.\.venv\Scripts\python.exe -m scripts.run_live_zcu104_prediction --ssh BOARD_USER@BOARD_IP --duration-s 1800
-```
-
-The command launches the board collector over SSH. The board saves telemetry
-under recordings/. The PC saves its own CSV and JSONL under results/live/.
-Allow at least 3.2 seconds for an input history; predictions print approximately
-once per board second. Values are aligned causally to 10Hz using actual
-per-sensor acquisition timestamps, with 0.2s staleness and 0.5s gap limits.
-Invalid rows and source gaps clear the history. Transport silence pauses
-predictions; a fresh history is required after a transport interruption.
-
-Console output contains current PL temperature, forecasts for 0.5/2/5s,
-three risk rows (49/50/51C) with three horizons each, and CPU inference time.
-JSONL records include all nine decisions using the checkpoint's fixed
-cutoffs. Later temperature_followup records include actual observations and
-absolute forecast errors. This does not calculate online transition accuracy:
-complete follow-up and the event-definition labeling procedure are needed.
-
-Run the existing FPGA workload separately, leaving normal cooling and board
-protections enabled. This application does not program the FPGA or change
-workloads, voltages, fan controls or clocks. Ctrl+C stops the PC runner; it does
-not stop a separately launched workload. The board stream may exit when SSH
-disconnects; check its process if reconnecting.
-
-## 6. Replay before connecting (optional)
-
-The public repository includes a synthetic recording for a plumbing check,
-not a measured test dataset. Generate it first:
+In PowerShell:
 
 ```powershell
 .\.venv\Scripts\python.exe -m scripts.make_demo_telemetry
-```
-
-```powershell
 .\.venv\Scripts\python.exe -m scripts.run_live_zcu104_prediction --input examples\replay_telemetry.csv --output-dir results\replay
 ```
 
-Replay advances through the file rapidly; it is not a live-board test or an
-accuracy benchmark. The separately shared original ZIP may contain a real replay.
+Expected: "Model loaded", then current temperature and forecasts, then saved file paths.
+This uses synthetic readings: it checks installation, not model accuracy.
 
-## 7. Inspect and save evidence
+On subsequent tests, skip make_demo_telemetry if examples\replay_telemetry.csv already exists. The generator deliberately refuses to overwrite it.
 
-In PowerShell after the run:
+## Step 5 — Connect the board with power OFF
+
+Keep your existing working ZCU104 Linux microSD image. Do not reflash it.
+
+Locate SW6 using the [official setup picture](https://pynq.readthedocs.io/en/latest/_images/zcu104_setup.png). Set switch 1 ON and switches 2, 3 and 4 OFF. ON means toward the printed ON mark. Use the switch numbers, not left/right orientation.
+
+Connect:
+1. The existing boot microSD in the J100 slot.
+2. The supplied board power adapter to J52 and mains.
+3. A data-capable micro-USB cable from J164 USB-UART to a USB port on the PC.
+4. An Ethernet cable from P12 to a router/switch. The PC must use the same network, through Ethernet or Wi-Fi.
+
+Keep normal fan/cooling connected. USB alone does not power this board. This guide uses a router/network with DHCP; a direct board-to-PC Ethernet cable needs different IP configuration.
+
+Turn the board power switch ON. Do not move SW6 while powered on.
+For these steps see [PYNQ setup](https://pynq.readthedocs.io/en/latest/getting_started/zcu104_setup.html) and [AMD UG1267](https://docs.amd.com/v/u/en-US/ug1267-zcu104-eval-bd).
+No HDMI, new Vivado project, JTAG programming or new bitstream is required for PC inference.
+
+## Step 6 — Open the board's Linux console in PuTTY
+
+1. On Windows, open Device Manager.
+2. Expand Ports (COM & LPT).
+3. Identify the ZCU104 USB serial COM port for FTDI UART channel B. COM numbers differ between PCs.
+4. Open PuTTY. Select Serial.
+5. Enter your COM port and speed 115200.
+6. Under Connection > Serial: 8 data bits, 1 stop bit, no parity, no flow control.
+7. Click Open and press Enter.
+8. Log in using the account for your installed board image.
+
+An unchanged PYNQ image commonly uses xilinx / xilinx. Other images may not; use your existing credentials.
+
+Expected: a Linux shell prompt. If there is no console, check the data cable, UART COM port, SD image and boot setting. Do not proceed until Linux is running.
+
+## Step 7 — Find the board's IP address
+
+Type these commands in **PuTTY**, not PowerShell:
+
+```bash
+whoami
+python3 --version
+ip -br address
+```
+
+Write down:
+- The username printed by whoami.
+- The Ethernet IPv4 address, for example 192.168.1.25. Ignore the /24 suffix and do not use 127.0.0.1.
+
+The example IP is not your actual address. If Ethernet has no IPv4 address, fix the router connection/DHCP first. Keep PuTTY open.
+
+## Step 8 — Test the network connection from the PC
+
+Return to **Windows PowerShell** in the project folder.
+Set these variables using your actual username and IP:
+
+```powershell
+$boardUser = "xilinx"
+$boardIp = "192.168.1.25"
+$board = "$boardUser@$boardIp"
+Test-NetConnection $boardIp -Port 22
+```
+
+Expected: TcpTestSucceeded : True.
+If False, stop and check Ethernet, network access and the board's SSH service; do not disable firewall/security protections.
+
+Test login:
+
+```powershell
+ssh $board
+```
+
+Verify any first-connection host fingerprint with your lab before accepting it. Enter the board account password if requested; password typing may not display characters.
+
+Expected: a board Linux prompt. Type:
+
+```bash
+exit
+```
+
+You must now be back at the Windows PowerShell prompt.
+
+## Step 9 — Copy only the collector to the board
+
+In **PowerShell**:
+
+```powershell
+ssh $board "mkdir -p raise_fpga_live"
+scp .\scripts\collect_zcu104_training_telemetry.py "${board}:raise_fpga_live/collect_zcu104_training_telemetry.py"
+```
+
+The collector goes into a dedicated folder in the board account's home directory. The .pt file stays on Windows; do not copy it for this PC-inference workflow.
+
+## Step 10 — Check all seven sensor readings
+
+In **PowerShell**:
+
+```powershell
+ssh $board "python3 raise_fpga_live/collect_zcu104_training_telemetry.py --check-only"
+```
+
+Expected: mappings/readings for all seven inputs:
+- PL temperature, PS temperature, remote temperature — degrees C.
+- VCCINT, VCCAUX, VCCBRAM — volts.
+- Input power — watts.
+
+Confirm plausible units and matching sensor identities against your previous readings.
+The collector expects the AMS channel layout from the supplied logs. INA226 power equivalence still needs board verification.
+If a sensor is missing, access is denied, or a value is implausible, stop and keep the error output. Do not fill missing channels with zero or replace them with unrelated sensors.
+
+## Step 11 — Run a short live test
+
+Leave normal cooling/protections enabled. If needed, run your existing approved FPGA workload separately using its established procedure. This repository does not start or program that workload.
+
+In **PowerShell**:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.run_live_zcu104_prediction --ssh $board --remote-script raise_fpga_live/collect_zcu104_training_telemetry.py --duration-s 60
+```
+
+Enter the board password if requested. The runner automatically starts the collector over SSH; do not start a second collector manually.
+
+Expected:
+1. "Model loaded. Waiting for a valid 3.2-second history..."
+2. Once sufficient valid readings arrive, prediction lines roughly every second.
+3. After 60 seconds, file paths for saved telemetry and predictions.
+
+If input stops or has invalid/gapped readings, prediction pauses and requires a new valid history. Do not treat paused/stale readings as a valid prediction.
+
+## Step 12 — Understand the printed output
+
+Each line shows:
+- PL: the temperature measured now.
+- forecast 0.5/2/5s: predicted future PL temperatures.
+- risk rows 49/50/51C: three rows, one for each event threshold.
+- Within each risk row, columns correspond to 0.5, 2 and 5 seconds.
+- inference: time taken for the PC model calculation, not total network latency.
+
+49/50/51C are trained event thresholds, not manufacturer danger limits. The risk scores are uncalibrated, so do not present them as verified safety probabilities. This checkpoint does not predict 10-second horizons or newly defined 46/47/48C events.
+
+## Step 13 — Inspect the evidence
+
+After the run, in **PowerShell**:
 
 ```powershell
 Get-ChildItem .\results\live
@@ -170,37 +223,29 @@ Get-Content $log.FullName | Select-Object -First 3
 Get-Content $log.FullName | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.kind -eq 'temperature_followup' } | Select-Object -First 5 | Format-List
 ```
 
-Keep the CSV, JSONL and the board's metadata JSON together with the workload
-name and timing. Follow-up observations demonstrate forecast versus actual
-temperature; they do not establish transition classification accuracy by themselves.
-For retraining, preserve complete separate runs, including warm-up, steady state
-and cool-down. Keep entire sessions separated between training and held-out test.
-Do not intentionally overheat the board or defeat hardware protections.
+The PC saves raw telemetry CSV and predictions JSONL in results\live.
+The board also saves CSV and sensor metadata under recordings in the board account's home directory.
 
-## What remains before claiming completion
+temperature_followup records compare a previous forecast with the later measured temperature and include the absolute error. Predictions near the recording end may lack future follow-up.
 
-The code has passed local replay and unit tests; a live SSH run on your physical
-board is still required. Confirm each channel matches the training measurement
-(especially INA226 power) and measure live prediction errors and latency.
-Then collect enough safe positive and negative transition examples and evaluate
-with the original event definitions and fixed decision cutoffs on held-out runs.
-The recorded older test macro accuracy is 89.53%, but its always-negative
-baseline is 96.82%; raw accuracy therefore does not establish a strong detector.
-The new gradual recording had no 49/50/51C positive events. Do not report its
-100% negative-only result as verified hazard prediction.
+This demonstrates forecast-versus-measurement behavior, not classification accuracy. Accuracy, precision, recall and F1 require complete event labeling and a separate held-out evaluation.
 
-49/50/51C are model event thresholds, not manufacturer danger limits. Any demo
-alarm or workload handoff is advisory until validated. Automatic switching to
-another FPGA, workload state transfer and a verified fail-safe controller are
-not implemented by this package. Running .pt on Windows is not FPGA-fabric deployment.
+## Step 14 — Collect a longer session
 
-## Board execution alternatives
+After the 60-second test succeeds, run in **PowerShell**:
 
-A .pt file contains model weights and metadata. It can be stored on the board's
-SD card and loaded into PS DDR by a compatible ARM runtime. ARM CPU inference
-requires the model code and matching runtime dependencies and still needs
-board testing. FPGA fabric execution requires an implementation/accelerator,
-operator support checks (including the GRU), quantization where applicable,
-compilation and a matching bitstream/runtime. Copying .pt into FPGA memory
-does not create executable FPGA logic. None of those FPGA conversion stages
-are included in this PC inference package.
+```powershell
+.\.venv\Scripts\python.exe -m scripts.run_live_zcu104_prediction --ssh $board --remote-script raise_fpga_live/collect_zcu104_training_telemetry.py --duration-s 1800
+```
+
+1800 seconds is 30 minutes. Keep warm-up, steady-state and cool-down as separate documented workload phases. Save complete sessions, record workload timing, and keep whole sessions separate between training and held-out testing.
+
+Ctrl+C stops the PC runner, not a separately launched FPGA workload. After an interrupted SSH session, check the board for any remaining collector before restarting. Shut down Linux normally before turning board power off.
+
+## What is and is not finished
+
+The package passed local replay and 8 unit tests. Live streaming on your physical board still requires verification.
+
+The earlier held-out macro accuracy was 89.53%, versus a 96.82% always-negative baseline. Raw accuracy alone does not prove a useful hazard detector. The new gradual recording had no positive 49/50/51C events; its negative-only 100% result does not validate transition detection.
+
+Automatic workload switching to a second FPGA, safe state transfer, and FPGA-fabric execution are not included. A .pt file is a trained checkpoint, not a bitstream. Do not intentionally overheat the board or bypass protection to create training events.
