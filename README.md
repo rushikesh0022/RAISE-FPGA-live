@@ -2,6 +2,28 @@
 
 Follow the steps in order. Do not proceed past a failed check.
 
+## Important: FPGA workload launcher is not yet included
+
+This repository runs the predictor and collector, but does **not** include the
+application that produces FPGA load. Idle sensor readings are valid readings,
+but they are not evidence of a CNN workload running in FPGA fabric.
+The existing workload must be identified before an end-to-end under-load launcher
+can be supplied. A PC/ARM CPU loop is not a substitute for FPGA execution.
+
+After completing steps 1–9 below, run these in Windows PowerShell:
+
+```powershell
+scp .\scripts\check_board_workload_setup.py "${board}:raise_fpga_live/check_board_workload_setup.py"
+ssh $board "python3 raise_fpga_live/check_board_workload_setup.py"
+```
+
+Send the output and the command/script previously used to produce the
+zcu104_cnn recordings. This check reads runtime/module availability and lists
+candidate hardware files under the board account's home directory. It does not
+program the board, start a workload, or establish that any model is compatible.
+If your hardware files are elsewhere, run it with --search-dir for that specific
+directory. Do not publish private board inventory or credentials to GitHub.
+
 **What this deployment does:** the ZCU104 sends seven sensor readings to your Windows PC. The PC loads the included trained .pt file, makes predictions, and saves telemetry and prediction logs. The model runs on the PC CPU, not in FPGA fabric.
 
 You will use two windows:
